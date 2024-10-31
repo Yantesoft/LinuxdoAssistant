@@ -14,10 +14,10 @@
 
     // 配置对象
     const config = {
-        scrollInterval: 300,    // 滚动间隔(毫秒)
-        scrollStep: 880,         // 每次滚动的像素
-        waitForElement: 20000,   // 找不到评论的最大时间
-        waitingTime: 1           // 看完评论等待 N 秒进入新帖子
+        scrollInterval: 300, // 滚动间隔(毫秒)
+        scrollStep: 880,// 每次滚动的像素
+        waitForElement: 20000,// 找不到评论的最大时间
+        waitingTime: 1// 看完评论等待 N 秒进入新帖子
     };
 
     // 开关状态管理
@@ -110,7 +110,7 @@
         if (!getSwitchState()) { return }
         const visitedLinks = JSON.parse(localStorage.getItem('visitedLinks') || '[]');
         const unvisitedLinks = links.filter(link => !visitedLinks.includes(link.href));
-        
+
         if (unvisitedLinks.length === 0) {
             window.location.href = "https://linux.do/new";
             console.log("去看最新帖子");
