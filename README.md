@@ -2,7 +2,8 @@
 
 ## 简介
 
-Linuxdo活跃助手是一个用于 Tampermonkey 的用户脚本，旨在自动浏览 Linux.do 论坛的帖子，帮助用户保持活跃度和参与度。
+Linuxdo活跃助手是一个用于 Tampermonkey 的用户脚本，旨在自动浏览 Linux.do 论坛的帖子，帮助用户保持活跃度。
+
 ![image](https://github.com/user-attachments/assets/d512be09-2068-42ed-a063-825a30f8a3c8)
 
 ## 功能特点
