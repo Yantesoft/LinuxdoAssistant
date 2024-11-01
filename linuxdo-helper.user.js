@@ -16,7 +16,7 @@
     const config = {
         scrollInterval: 300, // 滚动间隔(毫秒)
         scrollStep: 880,// 每次滚动的像素
-        waitForElement: 20000,// 找不到评论的最大时间
+        waitForElement: 3000,// 找不到评论的最大时间
         waitingTime: 1// 看完评论等待 N 秒进入新帖子
     };
 
