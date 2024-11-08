@@ -22,7 +22,6 @@
 
     //看我看我！！这里，别改错了！不能用就改这里哈！别改错了！别改错了！别改错了！↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
     const emClass={
-        btn:'li.search-dropdown.header-dropdown-toggle',//控制台提示  【错误】未找到按钮！  改这里
         list:'html.desktop-view.not-mobile-device.text-size-normal.no-touch.discourse-no-touch'//控制台提示  【错误】未找到列表！  改这里
     }
 
@@ -69,7 +68,7 @@
         });
 
         // 找到聊天图标并插入
-        const chatIconLi = document.querySelector(emClass.btn);
+        const chatIconLi = document.getElementById('search-button').parentElement;
         if (chatIconLi) {
             chatIconLi.parentNode.insertBefore(iconLi, chatIconLi.nextSibling);
         }else{
