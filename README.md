@@ -47,8 +47,10 @@
     - 前往Greasy Fork: [Tampermonkey](https://greasyfork.org/zh-CN/scripts/556858-linuxdo%E6%B4%BB%E8%B7%83)
 
 3. 修改油猴设置
-   - ![设置为高级]([images/preview.png](https://github.com/Yantesoft/LinuxdoAssistant/blob/main/step1.png))
-   - ![修改SCP限制]([images/preview.png](https://github.com/Yantesoft/LinuxdoAssistant/blob/main/step1.png))
+4. 
+5. - ![设置为高级](https://github.com/Yantesoft/LinuxdoAssistant/blob/main/step1.png?raw=true)
+   - ![]([))
+   - ![设置为高级](https://github.com/Yantesoft/LinuxdoAssistant/blob/main/step2.png?raw=true)
 3. **验证安装**
    - 访问 [Linuxdo 论坛](https://linux.do)
    - 在页面顶部导航栏应该能看到火箭图标（▶️）控制按钮
@@ -113,5 +115,6 @@
 ---
 
 **注意**：使用本助手时请遵守论坛规则，合理使用自动化功能。
+
 
 
