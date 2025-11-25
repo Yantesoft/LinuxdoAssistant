@@ -43,15 +43,17 @@
    - Firefox: [Tampermonkey](https://addons.mozilla.org/firefox/addon/tampermonkey/)
    - Edge: [Tampermonkey](https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd)
 
-2. **安装脚本**
-    - 前往Greasy Fork: [Tampermonkey](https://greasyfork.org/zh-CN/scripts/556858-linuxdo%E6%B4%BB%E8%B7%83)
 
-3. 修改油猴设置
+2. **修改油猴设置**
    - 进入油猴的管理面板，点击设置
-   - 设置油猴脚本为高级
+   - **配置模式** 改为 高级
    ![设置为高级](https://github.com/Yantesoft/LinuxdoAssistant/blob/main/step1.png?raw=true)
-   - 修改SCP模式
+   - 往下拉，在安全里面，**修改内容安全策略（CSP）头信息**修改为 全部移除
    ![修改SCP模式](https://github.com/Yantesoft/LinuxdoAssistant/blob/main/step2.png?raw=true)
+
+3. **安装脚本**
+    - 前往Greasy Fork点击安装按钮: [Tampermonkey](https://greasyfork.org/zh-CN/scripts/556858-linuxdo%E6%B4%BB%E8%B7%83)
+
 3. **验证安装**
    - 访问 [Linuxdo 论坛](https://linux.do)
    - 在页面顶部导航栏应该能看到火箭图标（▶️）控制按钮
@@ -116,6 +118,7 @@
 ---
 
 **注意**：使用本助手时请遵守论坛规则，合理使用自动化功能。
+
 
 
 
