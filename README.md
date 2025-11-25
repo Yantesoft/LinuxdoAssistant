@@ -44,7 +44,7 @@
    - Edge: [Tampermonkey](https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd)
 
 2. **安装脚本**
-    - 访问油猴: [Tampermonkey](https://greasyfork.org/zh-CN/scripts/556858-linuxdo%E6%B4%BB%E8%B7%83)
+    - 前往Greasy Fork: [Tampermonkey](https://greasyfork.org/zh-CN/scripts/556858-linuxdo%E6%B4%BB%E8%B7%83)
    
 
 3. **验证安装**
