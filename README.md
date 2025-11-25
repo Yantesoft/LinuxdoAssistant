@@ -45,8 +45,8 @@
 
 2. **安装脚本**
     - 前往Greasy Fork: [Tampermonkey](https://greasyfork.org/zh-CN/scripts/556858-linuxdo%E6%B4%BB%E8%B7%83)
-   
 
+3. ![https://github.com/Yantesoft/LinuxdoAssistant/blob/main/step1.png]
 3. **验证安装**
    - 访问 [Linuxdo 论坛](https://linux.do)
    - 在页面顶部导航栏应该能看到火箭图标（▶️）控制按钮
