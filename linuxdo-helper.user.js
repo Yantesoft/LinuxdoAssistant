@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo活跃
 // @namespace    http://tampermonkey.net/
-// @version      2.0.0
+// @version      2.0.1
 // @description  Linuxdo小助手（可控制开关）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -39,7 +39,7 @@
         headerIcons: '.d-header-icons',
         headerDropdown: 'ul.header-dropdown-toggle',
         header: 'header.d-header',
-        commentList: 'html.desktop-view.not-mobile-device.text-size-normal.no-touch.discourse-no-touch',
+        commentList: 'html.desktop-view.not-mobile-device',
         rawLinks: '.raw-link'
     };
 
@@ -408,6 +408,14 @@
     }
 
     /**
+     * 获取页面滚动容器（兼容不同浏览器/页面滚动实现）
+     * @returns {HTMLElement|null} 滚动容器元素
+     */
+    function getScrollContainer() {
+        return document.scrollingElement || document.documentElement || document.body;
+    }
+
+    /**
      * 获取页面中的原始链接列表
      * @returns {Array<Object>} 链接对象数组，包含index、href、text
      */
@@ -540,9 +548,16 @@
      */
     async function startAutoScroll() {
         try {
-            const commentElement = await waitForElement(SELECTORS.commentList);
-            console.log('找到评论列表元素:', commentElement);
-            scrollComment(commentElement);
+            // 等待进入桌面端视图（避免移动端/未初始化完成时误触发）
+            await waitForElement(SELECTORS.commentList);
+
+            const scrollContainer = getScrollContainer();
+            if (!scrollContainer) {
+                throw new Error('未找到滚动容器元素');
+            }
+
+            console.log('找到滚动容器元素:', scrollContainer);
+            scrollComment(scrollContainer);
         } catch (error) {
             console.error('启动自动滚动失败:', error);
         }
@@ -576,3 +591,6 @@
         window.addEventListener('load', main);
     }
 })();
+
+
+
