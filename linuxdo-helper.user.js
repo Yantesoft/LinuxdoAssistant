@@ -1,26 +1,48 @@
 // ==UserScript==
-// @name         Linuxdo活跃
+// @name         Linuxdo 阅读助手
 // @namespace    http://tampermonkey.net/
-// @version      2.0.0
-// @description  Linuxdo小助手（可控制开关）
+// @version      2.2.0
+// @description  Linuxdo 阅读小助手
 // @author       Cressida
 // @match        https://linux.do/*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @run-at       document-idle
+// @downloadURL https://update.greasyfork.org/scripts/556858/Linuxdo%20%E9%98%85%E8%AF%BB%E5%8A%A9%E6%89%8B.user.js
+// @updateURL https://update.greasyfork.org/scripts/556858/Linuxdo%20%E9%98%85%E8%AF%BB%E5%8A%A9%E6%89%8B.meta.js
 // ==/UserScript==
 
 (function () {
     'use strict';
 
     // ==================== 常量定义 ====================
-    
+
     /** 默认配置参数 */
     const DEFAULT_CONFIG = {
-        scrollInterval: 300,      // 滚动间隔(毫秒)
-        scrollStep: 880,          // 每次滚动的像素
-        waitForElement: 2000,    // 找不到评论的最大等待时间(毫秒)
-        waitingTime: 1000        // 看完评论等待时间(毫秒)
+        scrollInterval: 300,      // 基础滚动间隔(毫秒)
+        scrollStep: 880,          // 基础每次滚动像素
+        waitForElement: 2000,     // 找不到评论的最大等待时间(毫秒)
+        waitingTime: 1000         // 看完评论等待时间(毫秒)
+    };
+
+    /** 随机延时配置 */
+    const RANDOM_DELAY_CONFIG = {
+        scrollIntervalJitter: 0.80,     // 滚动间隔随机波动 ±45%
+        scrollStepJitter: 0.50,         // 滚动距离随机波动 ±30%
+        waitingTimeJitter: 0.80,        // 看完评论等待时间随机波动 ±80%
+        waitForElementJitter: 0,     // 等待元素超时时间随机波动 ±35%
+
+        pageJumpDelayMin: 800,          // 跳转帖子前最小等待
+        pageJumpDelayMax: 3500,         // 跳转帖子前最大等待
+
+        newPostsDelayMin: 1200,         // 没有新链接时返回 new 页面最小等待
+        newPostsDelayMax: 5000,         // 没有新链接时返回 new 页面最大等待
+
+        enableJumpDelayMin: 500,        // 开启助手后跳转最小等待
+        enableJumpDelayMax: 1800,       // 开启助手后跳转最大等待
+
+        startScrollDelayMin: 500,       // 找到评论区域后，开始滚动的最小等待
+        startScrollDelayMax: 1600       // 找到评论区域后，开始滚动的最大等待
     };
 
     /** 速度滑块配置 */
@@ -29,6 +51,12 @@
         max: 5.0,
         step: 0.1,
         default: 1.0
+    };
+
+    /** 话题优先模式配置 */
+    const TOPIC_FIRST_CONFIG = {
+        minScrollCount: 0,
+        maxScrollCount: 3
     };
 
     /** 元素选择器配置 */
@@ -48,6 +76,7 @@
         enabled: 'linuxdoHelperEnabled',
         baseConfig: 'linuxdoHelperBaseConfig',
         speedRatio: 'linuxdoHelperSpeedRatio',
+        topicFirstMode: 'linuxdoHelperTopicFirstMode',
         visitedLinks: 'visitedLinks'
     };
 
@@ -58,6 +87,47 @@
 
     /** 元素等待超时时间（毫秒） */
     const ELEMENT_WAIT_TIMEOUT = 2000;
+
+    // ==================== 随机工具函数 ====================
+
+    /**
+     * 获取随机整数
+     * @param {number} min - 最小值
+     * @param {number} max - 最大值
+     * @returns {number}
+     */
+    function randomInt(min, max) {
+        min = Math.ceil(min);
+        max = Math.floor(max);
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    /**
+     * 按比例随机波动数值
+     * @param {number} value - 原始值
+     * @param {number} jitter - 波动比例，例如 0.3 表示 ±30%
+     * @param {number} minValue - 最小值
+     * @returns {number}
+     */
+    function randomByJitter(value, jitter = 0.3, minValue = 1) {
+        const min = value * (1 - jitter);
+        const max = value * (1 + jitter);
+        return Math.max(minValue, Math.round(randomInt(min, max)));
+    }
+
+    /**
+     * 受速度比例影响的随机延时
+     * 速度越快，延时越短
+     * @param {number} min - 最小延时
+     * @param {number} max - 最大延时
+     * @returns {number}
+     */
+    function randomDelay(min, max) {
+        const ratio = getSpeedRatio();
+        const realMin = Math.max(50, Math.round(min / ratio));
+        const realMax = Math.max(realMin + 1, Math.round(max / ratio));
+        return randomInt(realMin, realMax);
+    }
 
     // ==================== 配置管理 ====================
 
@@ -106,12 +176,14 @@
         if (!baseConfig) {
             baseConfig = getBaseConfig();
         }
+
         const ratio = getSpeedRatio();
+
         return {
-            scrollInterval: Math.round(baseConfig.scrollInterval / ratio),
-            scrollStep: Math.round(baseConfig.scrollStep * ratio),
-            waitForElement: Math.round(baseConfig.waitForElement / ratio),
-            waitingTime: Math.round(baseConfig.waitingTime / ratio)
+            scrollInterval: Math.max(80, Math.round(baseConfig.scrollInterval / ratio)),
+            scrollStep: Math.max(50, Math.round(baseConfig.scrollStep * ratio)),
+            waitForElement: Math.max(500, Math.round(baseConfig.waitForElement / ratio)),
+            waitingTime: Math.max(300, Math.round(baseConfig.waitingTime / ratio))
         };
     }
 
@@ -134,13 +206,42 @@
     function toggleSwitch() {
         const currentState = getSwitchState();
         const newState = !currentState;
+
         GM_setValue(STORAGE_KEYS.enabled, newState);
 
         if (newState) {
-            // 启用时跳转到新帖子页面
-            window.location.href = URLS.newPosts;
+            const delay = randomDelay(
+                RANDOM_DELAY_CONFIG.enableJumpDelayMin,
+                RANDOM_DELAY_CONFIG.enableJumpDelayMax
+            );
+
+            console.log(`Linuxdo助手已启用，${delay}ms 后跳转到最新页面`);
+
+            setTimeout(() => {
+                if (getSwitchState()) {
+                    window.location.href = URLS.newPosts;
+                }
+            }, delay);
+        } else {
+            stopScrolling();
+            console.log('Linuxdo助手已禁用');
         }
-        console.log(`Linuxdo助手已${newState ? '启用' : '禁用'}`);
+    }
+
+    /**
+     * 获取话题优先模式状态
+     * @returns {boolean} 是否启用话题优先
+     */
+    function getTopicFirstMode() {
+        return GM_getValue(STORAGE_KEYS.topicFirstMode, false);
+    }
+
+    /**
+     * 保存话题优先模式状态
+     * @param {boolean} enabled - 是否启用话题优先
+     */
+    function saveTopicFirstMode(enabled) {
+        GM_setValue(STORAGE_KEYS.topicFirstMode, enabled);
     }
 
     // ==================== UI 组件创建 ====================
@@ -154,11 +255,12 @@
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('class', 'fa d-icon d-icon-rocket svg-icon prefix-icon svg-string');
         svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-        
+
         const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
         use.setAttribute('href', iconHref);
+
         svg.appendChild(use);
-        
+
         return svg;
     }
 
@@ -169,34 +271,36 @@
     function createSwitchButton() {
         const iconLi = document.createElement('li');
         iconLi.className = 'header-dropdown-toggle';
-        
+
         const iconLink = document.createElement('a');
         iconLink.href = '#';
         iconLink.className = 'btn no-text icon btn-flat';
         iconLink.tabIndex = 0;
-        
+
         const isEnabled = getSwitchState();
         iconLink.title = isEnabled ? '停止Linuxdo助手' : '启动Linuxdo助手';
-        
+
         const svg = createSVGIcon(isEnabled ? '#pause' : '#play');
+
         iconLink.appendChild(svg);
         iconLi.appendChild(iconLink);
 
-        // 点击事件处理
         iconLink.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            
+
             toggleSwitch();
-            
-            // 更新按钮状态
+
             const newState = getSwitchState();
             const use = svg.querySelector('use');
-            use.setAttribute('href', newState ? '#pause' : '#play');
+
+            if (use) {
+                use.setAttribute('href', newState ? '#pause' : '#play');
+            }
+
             iconLink.title = newState ? '停止Linuxdo助手' : '启动Linuxdo助手';
             iconLink.classList.toggle('active', newState);
-            
-            // 更新悬浮滑块显示状态
+
             updateFloatingSliderVisibility();
         });
 
@@ -209,24 +313,28 @@
      */
     async function findChatButton() {
         try {
-            // 尝试等待聊天按钮出现
+            const timeout = randomByJitter(
+                ELEMENT_WAIT_TIMEOUT,
+                RANDOM_DELAY_CONFIG.waitForElementJitter,
+                800
+            );
+
             const chatButton = await Promise.race([
                 waitForElement(SELECTORS.chatButton),
-                new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('timeout')), ELEMENT_WAIT_TIMEOUT)
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('timeout')), timeout)
                 )
             ]).catch(() => null);
-            
+
             if (chatButton) {
                 return chatButton;
             }
         } catch (e) {
-            // 等待失败，继续尝试直接查找
+            // 忽略错误，继续尝试直接查找
         }
-        
-        // 直接查找聊天按钮
-        return document.querySelector(SELECTORS.chatButton) || 
-               document.querySelector(SELECTORS.chatLink)?.closest('li');
+
+        return document.querySelector(SELECTORS.chatButton) ||
+            document.querySelector(SELECTORS.chatLink)?.closest('li');
     }
 
     /**
@@ -234,9 +342,9 @@
      * @returns {HTMLElement|null} 备用位置元素或null
      */
     function findFallbackInsertPosition() {
-        return document.querySelector(SELECTORS.headerButtons) || 
-               document.querySelector(SELECTORS.headerIcons) ||
-               document.querySelector(SELECTORS.headerDropdown)?.parentElement;
+        return document.querySelector(SELECTORS.headerButtons) ||
+            document.querySelector(SELECTORS.headerIcons) ||
+            document.querySelector(SELECTORS.headerDropdown)?.parentElement;
     }
 
     /**
@@ -244,31 +352,38 @@
      * @param {HTMLElement} buttonElement - 开关按钮元素
      */
     function insertSwitchButton(buttonElement) {
-        // 优先插入到聊天按钮旁边
+        if (document.getElementById('linuxdo-helper-switch')) {
+            return;
+        }
+
+        buttonElement.id = 'linuxdo-helper-switch';
+
         const chatButton = document.querySelector(SELECTORS.chatButton);
+
         if (chatButton?.parentNode) {
             chatButton.parentNode.insertBefore(buttonElement, chatButton.nextSibling);
             return;
         }
 
-        // 备用方案：插入到其他header按钮位置
         const fallbackPosition = findFallbackInsertPosition();
+
         if (fallbackPosition?.parentNode) {
             fallbackPosition.parentNode.insertBefore(buttonElement, fallbackPosition.nextSibling);
             return;
         }
 
-        // 最后方案：插入到header中
         const header = document.querySelector(SELECTORS.header) || document.querySelector('header');
+
         if (header) {
             const headerList = header.querySelector('ul') || header.querySelector('nav');
+
             if (headerList) {
                 headerList.appendChild(buttonElement);
             } else {
                 header.insertBefore(buttonElement, header.firstChild);
             }
         } else {
-            console.log("【错误】未找到按钮插入位置！");
+            console.log('【错误】未找到按钮插入位置！');
         }
     }
 
@@ -277,8 +392,64 @@
      */
     async function createSwitchIcon() {
         const switchButton = createSwitchButton();
-        await findChatButton(); // 等待聊天按钮加载
+
+        await findChatButton();
+
         insertSwitchButton(switchButton);
+    }
+
+    /**
+     * 注入悬浮面板样式，支持亮色/暗色主题
+     */
+    function injectFloatingPanelStyles() {
+        if (document.getElementById('linuxdo-helper-panel-style')) {
+            return;
+        }
+
+        const style = document.createElement('style');
+        style.id = 'linuxdo-helper-panel-style';
+        style.textContent = `
+            #linuxdo-speed-slider {
+                --linuxdo-helper-bg: var(--secondary, #ffffff);
+                --linuxdo-helper-text: var(--primary, #333333);
+                --linuxdo-helper-muted: var(--primary-medium, #666666);
+                --linuxdo-helper-border: var(--primary-low, rgba(0, 0, 0, 0.12));
+                --linuxdo-helper-slider-bg: var(--primary-low, #dddddd);
+
+                background: var(--linuxdo-helper-bg);
+                color: var(--linuxdo-helper-text);
+                border: 1px solid var(--linuxdo-helper-border);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                color-scheme: light dark;
+            }
+
+            #linuxdo-speed-slider .linuxdo-helper-label,
+            #linuxdo-speed-slider .linuxdo-helper-topic-first {
+                color: var(--linuxdo-helper-text);
+            }
+
+            #linuxdo-speed-slider .linuxdo-helper-value {
+                color: var(--linuxdo-helper-muted);
+            }
+
+            #linuxdo-speed-slider input[type="range"] {
+                background: var(--linuxdo-helper-slider-bg);
+            }
+
+            @media (prefers-color-scheme: dark) {
+                #linuxdo-speed-slider {
+                    --linuxdo-helper-bg: var(--secondary, #1f2328);
+                    --linuxdo-helper-text: var(--primary, #f0f0f0);
+                    --linuxdo-helper-muted: var(--primary-medium, #b8b8b8);
+                    --linuxdo-helper-border: var(--primary-low, rgba(255, 255, 255, 0.14));
+                    --linuxdo-helper-slider-bg: var(--primary-low, #3a3f45);
+
+                    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+                }
+            }
+        `;
+
+        document.head.appendChild(style);
     }
 
     /**
@@ -286,39 +457,37 @@
      * @returns {HTMLElement} 滑块容器元素
      */
     function createFloatingSpeedSlider() {
-        // 如果已存在，先移除
+        injectFloatingPanelStyles();
+
         const existingSlider = document.getElementById('linuxdo-speed-slider');
+
         if (existingSlider) {
             existingSlider.remove();
         }
 
-        // 创建容器
         const container = document.createElement('div');
+
         container.id = 'linuxdo-speed-slider';
         container.style.cssText = `
             position: fixed;
             bottom: 20px;
             right: 20px;
-            background: white;
             border-radius: 8px;
             padding: 16px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             z-index: 9999;
             min-width: 200px;
             display: ${getSwitchState() ? 'block' : 'none'};
         `;
 
-        // 创建标签
         const label = document.createElement('div');
+        label.className = 'linuxdo-helper-label';
         label.textContent = '阅读速度';
-        label.style.cssText = 'font-size: 14px; color: #333; font-weight: 500; margin-bottom: 10px;';
+        label.style.cssText = 'font-size: 14px; font-weight: 500; margin-bottom: 10px;';
         container.appendChild(label);
 
-        // 创建滑块容器
         const sliderWrapper = document.createElement('div');
         sliderWrapper.style.cssText = 'display: flex; align-items: center; gap: 12px;';
 
-        // 创建滑块
         const slider = document.createElement('input');
         slider.type = 'range';
         slider.min = SPEED_SLIDER_CONFIG.min;
@@ -329,30 +498,57 @@
             flex: 1;
             height: 6px;
             border-radius: 3px;
-            background: #ddd;
             outline: none;
             cursor: pointer;
         `;
 
-        // 创建数值显示
         const valueDisplay = document.createElement('span');
+        valueDisplay.className = 'linuxdo-helper-value';
         valueDisplay.textContent = getSpeedRatio().toFixed(1) + 'x';
-        valueDisplay.style.cssText = 'min-width: 45px; text-align: right; font-size: 14px; color: #666; font-weight: 500;';
+        valueDisplay.style.cssText = 'min-width: 45px; text-align: right; font-size: 14px; font-weight: 500;';
 
-        // 滑块值变化事件
         slider.addEventListener('input', () => {
             const ratio = parseFloat(slider.value);
+
             valueDisplay.textContent = ratio.toFixed(1) + 'x';
             saveSpeedRatio(ratio);
-            
-            // 如果正在滚动，立即应用新速度
+
             restartScrolling();
         });
 
-        // 组装元素
         sliderWrapper.appendChild(slider);
         sliderWrapper.appendChild(valueDisplay);
         container.appendChild(sliderWrapper);
+
+        const topicFirstWrapper = document.createElement('label');
+        topicFirstWrapper.className = 'linuxdo-helper-topic-first';
+        topicFirstWrapper.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 12px;
+            font-size: 14px;
+            cursor: pointer;
+            user-select: none;
+        `;
+
+        const topicFirstCheckbox = document.createElement('input');
+        topicFirstCheckbox.type = 'checkbox';
+        topicFirstCheckbox.checked = getTopicFirstMode();
+        topicFirstCheckbox.style.cssText = 'cursor: pointer;';
+
+        const topicFirstText = document.createElement('span');
+        topicFirstText.textContent = '话题优先';
+
+        topicFirstCheckbox.addEventListener('change', () => {
+            saveTopicFirstMode(topicFirstCheckbox.checked);
+            restartScrolling();
+        });
+
+        topicFirstWrapper.appendChild(topicFirstCheckbox);
+        topicFirstWrapper.appendChild(topicFirstText);
+        container.appendChild(topicFirstWrapper);
+
         document.body.appendChild(container);
 
         return container;
@@ -363,6 +559,7 @@
      */
     function updateFloatingSliderVisibility() {
         const slider = document.getElementById('linuxdo-speed-slider');
+
         if (slider) {
             slider.style.display = getSwitchState() ? 'block' : 'none';
         }
@@ -377,16 +574,16 @@
      */
     function waitForElement(selector) {
         return new Promise((resolve, reject) => {
-            // 先尝试直接查找
             const element = document.querySelector(selector);
+
             if (element) {
                 resolve(element);
                 return;
             }
 
-            // 使用MutationObserver监听DOM变化
             const observer = new MutationObserver(() => {
                 const element = document.querySelector(selector);
+
                 if (element) {
                     observer.disconnect();
                     resolve(element);
@@ -398,12 +595,17 @@
                 subtree: true
             });
 
-            // 超时处理
+            const timeout = randomByJitter(
+                getConfig().waitForElement,
+                RANDOM_DELAY_CONFIG.waitForElementJitter,
+                500
+            );
+
             setTimeout(() => {
                 observer.disconnect();
-                console.log("【错误】未找到元素：", selector);
+                console.log('【错误】未找到元素：', selector);
                 reject(new Error('未找到：' + selector));
-            }, getConfig().waitForElement);
+            }, timeout);
         });
     }
 
@@ -413,6 +615,7 @@
      */
     function getRawLinks() {
         const linkElements = document.querySelectorAll(SELECTORS.rawLinks);
+
         return Array.from(linkElements)
             .map((element, index) => ({
                 index: index + 1,
@@ -425,10 +628,29 @@
     // ==================== 核心功能 ====================
 
     /** 当前运行的滚动定时器引用 */
-    let currentScrollInterval = null;
-    
+    let currentScrollTimer = null;
+
     /** 当前评论元素引用 */
     let currentCommentElement = null;
+
+    /**
+     * 随机延时后跳转
+     * @param {string} url - 目标地址
+     * @param {number} minDelay - 最小延时
+     * @param {number} maxDelay - 最大延时
+     * @param {string} message - 日志信息
+     */
+    function jumpWithRandomDelay(url, minDelay, maxDelay, message = '准备跳转') {
+        const delay = randomDelay(minDelay, maxDelay);
+
+        console.log(`${message}，${delay}ms 后执行`);
+
+        setTimeout(() => {
+            if (getSwitchState()) {
+                window.location.href = url;
+            }
+        }, delay);
+    }
 
     /**
      * 加载并跳转到新页面
@@ -442,37 +664,44 @@
         const visitedLinks = JSON.parse(
             localStorage.getItem(STORAGE_KEYS.visitedLinks) || '[]'
         );
+
         const unvisitedLinks = links.filter(
             link => !visitedLinks.includes(link.href)
         );
 
-        // 如果没有未访问的链接，跳转到新帖子页面
         if (unvisitedLinks.length === 0) {
-            window.location.href = URLS.newPosts;
-            console.log("去看最新帖子");
+            jumpWithRandomDelay(
+                URLS.newPosts,
+                RANDOM_DELAY_CONFIG.newPostsDelayMin,
+                RANDOM_DELAY_CONFIG.newPostsDelayMax,
+                '没有未访问链接，去看最新帖子'
+            );
             return;
         }
 
-        // 随机选择一个未访问的链接
         const randomIndex = Math.floor(Math.random() * unvisitedLinks.length);
         const selectedLink = unvisitedLinks[randomIndex];
-        
-        // 记录已访问
+
         visitedLinks.push(selectedLink.href);
         localStorage.setItem(STORAGE_KEYS.visitedLinks, JSON.stringify(visitedLinks));
-        
-        // 跳转
-        window.location.href = selectedLink.href;
+
+        jumpWithRandomDelay(
+            selectedLink.href,
+            RANDOM_DELAY_CONFIG.pageJumpDelayMin,
+            RANDOM_DELAY_CONFIG.pageJumpDelayMax,
+            `准备进入帖子：${selectedLink.text || selectedLink.href}`
+        );
     }
 
     /**
      * 停止当前滚动
      */
     function stopScrolling() {
-        if (currentScrollInterval) {
-            clearInterval(currentScrollInterval);
-            currentScrollInterval = null;
+        if (currentScrollTimer) {
+            clearTimeout(currentScrollTimer);
+            currentScrollTimer = null;
         }
+
         currentCommentElement = null;
     }
 
@@ -481,57 +710,115 @@
      * @param {HTMLElement} commentElement - 评论容器元素
      */
     function scrollComment(commentElement) {
-        // 停止之前的滚动
         stopScrolling();
-        
-        // 保存当前评论元素引用
-        currentCommentElement = commentElement;
-        
-        // 记录开始等待链接的时间
-        let linkWaitStartTime = null;
-        
-        // 获取最新配置
-        const config = getConfig();
-        
-        const scrollInterval = setInterval(() => {
-            // 每次滚动时重新获取配置，确保速度改变立即生效
-            const currentConfig = getConfig();
-            
-            // 滚动
-            commentElement.scrollTop += currentConfig.scrollStep;
-            commentElement.dispatchEvent(new Event('scroll'));
 
-            // 检查是否有链接
+        currentCommentElement = commentElement;
+
+        let linkWaitStartTime = null;
+        let currentRequiredWaitingTime = null;
+        let currentScrollCount = 0;
+        let currentMaxScrollCount = null;
+
+        if (getTopicFirstMode()) {
+            currentMaxScrollCount = randomInt(
+                TOPIC_FIRST_CONFIG.minScrollCount,
+                TOPIC_FIRST_CONFIG.maxScrollCount
+            );
+
+            console.log(`话题优先模式已开启，本帖最多滚动 ${currentMaxScrollCount} 次`);
+        }
+
+        const doScroll = () => {
+            if (!getSwitchState()) {
+                stopScrolling();
+                return;
+            }
+
+            if (!currentCommentElement || currentCommentElement !== commentElement) {
+                return;
+            }
+
+            const currentConfig = getConfig();
+
+            if (getTopicFirstMode() && currentScrollCount >= currentMaxScrollCount) {
+                console.log(`话题优先模式达到滚动次数 ${currentScrollCount}/${currentMaxScrollCount}，准备换下一个帖子`);
+                stopScrolling();
+                loadPage(getRawLinks());
+                return;
+            }
+
+            const randomStep = randomByJitter(
+                currentConfig.scrollStep,
+                RANDOM_DELAY_CONFIG.scrollStepJitter,
+                80
+            );
+
+            const scrollTarget = document.scrollingElement || commentElement;
+
+            scrollTarget.scrollTop += randomStep;
+            scrollTarget.dispatchEvent(new Event('scroll'));
+            currentScrollCount += 1;
+
             const links = getRawLinks();
+
+            if (getTopicFirstMode() && currentScrollCount >= currentMaxScrollCount) {
+                console.log(`话题优先模式达到滚动次数 ${currentScrollCount}/${currentMaxScrollCount}，准备换下一个帖子`);
+                stopScrolling();
+                loadPage(links);
+                return;
+            }
+
             if (links.length > 0) {
-                // 记录开始等待的时间
                 if (linkWaitStartTime === null) {
                     linkWaitStartTime = Date.now();
+
+                    currentRequiredWaitingTime = randomByJitter(
+                        currentConfig.waitingTime,
+                        RANDOM_DELAY_CONFIG.waitingTimeJitter,
+                        500
+                    );
+
+                    console.log(`发现链接，随机等待 ${currentRequiredWaitingTime}ms 后跳转`);
                 }
-                
-                // 计算已等待时间（毫秒）
+
                 const waitedTime = Date.now() - linkWaitStartTime;
-                
-                if (waitedTime >= currentConfig.waitingTime) {
+
+                if (waitedTime >= currentRequiredWaitingTime) {
                     stopScrolling();
                     loadPage(links);
+                    return;
                 }
             } else {
-                // 没有链接时重置等待时间
                 linkWaitStartTime = null;
+                currentRequiredWaitingTime = null;
             }
-        }, config.scrollInterval);
-        
-        // 保存 interval 引用
-        currentScrollInterval = scrollInterval;
+
+            const nextInterval = randomByJitter(
+                currentConfig.scrollInterval,
+                RANDOM_DELAY_CONFIG.scrollIntervalJitter,
+                120
+            );
+
+            currentScrollTimer = setTimeout(doScroll, nextInterval);
+        };
+
+        const firstDelay = randomByJitter(
+            getConfig().scrollInterval,
+            RANDOM_DELAY_CONFIG.scrollIntervalJitter,
+            120
+        );
+
+        currentScrollTimer = setTimeout(doScroll, firstDelay);
     }
-    
+
     /**
      * 重新启动滚动（用于速度改变时立即生效）
      */
     function restartScrolling() {
-        if (currentCommentElement) {
-            scrollComment(currentCommentElement);
+        const element = currentCommentElement;
+
+        if (element) {
+            scrollComment(element);
         }
     }
 
@@ -541,8 +828,21 @@
     async function startAutoScroll() {
         try {
             const commentElement = await waitForElement(SELECTORS.commentList);
+
             console.log('找到评论列表元素:', commentElement);
-            scrollComment(commentElement);
+
+            const delay = randomDelay(
+                RANDOM_DELAY_CONFIG.startScrollDelayMin,
+                RANDOM_DELAY_CONFIG.startScrollDelayMax
+            );
+
+            console.log(`随机等待 ${delay}ms 后开始滚动`);
+
+            setTimeout(() => {
+                if (getSwitchState()) {
+                    scrollComment(commentElement);
+                }
+            }, delay);
         } catch (error) {
             console.error('启动自动滚动失败:', error);
         }
@@ -554,22 +854,17 @@
      * 主初始化函数
      */
     async function main() {
-        // 创建控制开关按钮
         await createSwitchIcon();
-        
-        // 创建悬浮速度滑块
+
         createFloatingSpeedSlider();
-        
-        // 如果助手未启用，不执行后续操作
+
         if (!getSwitchState()) {
             return;
         }
 
-        // 启动自动滚动
         startAutoScroll();
     }
 
-    // 页面加载完成后执行
     if (document.readyState === 'complete') {
         main();
     } else {
