@@ -129,6 +129,35 @@
         return randomInt(realMin, realMax);
     }
 
+    /**
+     * 获取当前标签页级别的数据
+     * @param {string} key - 存储键名
+     * @param {*} defaultValue - 默认值
+     * @returns {*} 存储值
+     */
+    function getTabValue(key, defaultValue) {
+        const rawValue = sessionStorage.getItem(key);
+
+        if (rawValue === null) {
+            return defaultValue;
+        }
+
+        try {
+            return JSON.parse(rawValue);
+        } catch (error) {
+            return defaultValue;
+        }
+    }
+
+    /**
+     * 保存当前标签页级别的数据
+     * @param {string} key - 存储键名
+     * @param {*} value - 存储值
+     */
+    function setTabValue(key, value) {
+        sessionStorage.setItem(key, JSON.stringify(value));
+    }
+
     // ==================== 配置管理 ====================
 
     /** 基础配置（用于速度比例计算） */
@@ -193,11 +222,11 @@
     // ==================== 开关状态管理 ====================
 
     /**
-     * 获取助手开关状态
-     * @returns {boolean} 是否启用
+     * 获取当前标签页的助手运行状态
+     * @returns {boolean} 当前标签页是否启用
      */
     function getSwitchState() {
-        return GM_getValue(STORAGE_KEYS.enabled, false);
+        return getTabValue(STORAGE_KEYS.enabled, false);
     }
 
     /**
@@ -207,7 +236,7 @@
         const currentState = getSwitchState();
         const newState = !currentState;
 
-        GM_setValue(STORAGE_KEYS.enabled, newState);
+        setTabValue(STORAGE_KEYS.enabled, newState);
 
         if (newState) {
             const delay = randomDelay(
@@ -661,9 +690,7 @@
             return;
         }
 
-        const visitedLinks = JSON.parse(
-            localStorage.getItem(STORAGE_KEYS.visitedLinks) || '[]'
-        );
+        const visitedLinks = getTabValue(STORAGE_KEYS.visitedLinks, []);
 
         const unvisitedLinks = links.filter(
             link => !visitedLinks.includes(link.href)
@@ -683,7 +710,7 @@
         const selectedLink = unvisitedLinks[randomIndex];
 
         visitedLinks.push(selectedLink.href);
-        localStorage.setItem(STORAGE_KEYS.visitedLinks, JSON.stringify(visitedLinks));
+        setTabValue(STORAGE_KEYS.visitedLinks, visitedLinks);
 
         jumpWithRandomDelay(
             selectedLink.href,
