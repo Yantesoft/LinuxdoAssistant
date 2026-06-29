@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo 阅读助手
 // @namespace    http://tampermonkey.net/
-// @version      2.2.0
+// @version      2.2.5
 // @description  Linuxdo 阅读小助手
 // @author       Cressida
 // @match        https://linux.do/*
@@ -47,16 +47,17 @@
 
     /** 速度滑块配置 */
     const SPEED_SLIDER_CONFIG = {
-        min: 0.1,
-        max: 5.0,
-        step: 0.1,
+        min: 0.01,
+        max: 1.0,
+        step: 0.01,
         default: 1.0
     };
 
     /** 话题优先模式配置 */
     const TOPIC_FIRST_CONFIG = {
         minScrollCount: 0,
-        maxScrollCount: 3
+        maxScrollCount: 3,
+        newTopicMinimumReadTime: 30000
     };
 
     /** 元素选择器配置 */
@@ -68,7 +69,8 @@
         headerDropdown: 'ul.header-dropdown-toggle',
         header: 'header.d-header',
         commentList: 'html.desktop-view.not-mobile-device.text-size-normal.no-touch.discourse-no-touch',
-        rawLinks: '.raw-link'
+        topicLinks: 'tr.topic-list-item a.title.raw-topic-link',
+        newTopicBadge: '.badge-notification.new-topic'
     };
 
     /** 存储键名 */
@@ -77,6 +79,8 @@
         baseConfig: 'linuxdoHelperBaseConfig',
         speedRatio: 'linuxdoHelperSpeedRatio',
         topicFirstMode: 'linuxdoHelperTopicFirstMode',
+        newTopicFirstMode: 'linuxdoHelperNewTopicFirstMode',
+        currentTopicNeedsMinimumReadTime: 'linuxdoHelperCurrentTopicNeedsMinimumReadTime',
         visitedLinks: 'visitedLinks'
     };
 
@@ -183,10 +187,10 @@
 
     /**
      * 获取速度比例
-     * @returns {number} 速度比例（0.1 - 5.0）
+     * @returns {number} 速度比例（0.01 - 1.0）
      */
     function getSpeedRatio() {
-        return GM_getValue(STORAGE_KEYS.speedRatio, SPEED_SLIDER_CONFIG.default);
+        return normalizeSpeedRatio(GM_getValue(STORAGE_KEYS.speedRatio, SPEED_SLIDER_CONFIG.default));
     }
 
     /**
@@ -194,7 +198,19 @@
      * @param {number} ratio - 速度比例
      */
     function saveSpeedRatio(ratio) {
-        GM_setValue(STORAGE_KEYS.speedRatio, ratio);
+        GM_setValue(STORAGE_KEYS.speedRatio, normalizeSpeedRatio(ratio));
+    }
+
+    function normalizeSpeedRatio(ratio) {
+        const numericRatio = Number.isFinite(Number(ratio)) ? Number(ratio) : SPEED_SLIDER_CONFIG.default;
+        const clampedRatio = Math.min(SPEED_SLIDER_CONFIG.max, Math.max(SPEED_SLIDER_CONFIG.min, numericRatio));
+        const steppedRatio = Math.round(clampedRatio / SPEED_SLIDER_CONFIG.step) * SPEED_SLIDER_CONFIG.step;
+
+        return Number(steppedRatio.toFixed(2));
+    }
+
+    function formatSpeedDisplay(ratio) {
+        return String(Math.round(normalizeSpeedRatio(ratio) * 100));
     }
 
     /**
@@ -245,6 +261,7 @@
             );
 
             console.log(`Linuxdo助手已启用，${delay}ms 后跳转到最新页面`);
+            setTabValue(STORAGE_KEYS.currentTopicNeedsMinimumReadTime, false);
 
             setTimeout(() => {
                 if (getSwitchState()) {
@@ -271,6 +288,22 @@
      */
     function saveTopicFirstMode(enabled) {
         GM_setValue(STORAGE_KEYS.topicFirstMode, enabled);
+    }
+
+    /**
+     * 获取新话题优先模式状态
+     * @returns {boolean} 是否启用新话题优先
+     */
+    function getNewTopicFirstMode() {
+        return GM_getValue(STORAGE_KEYS.newTopicFirstMode, false);
+    }
+
+    /**
+     * 保存新话题优先模式状态
+     * @param {boolean} enabled - 是否启用新话题优先
+     */
+    function saveNewTopicFirstMode(enabled) {
+        GM_setValue(STORAGE_KEYS.newTopicFirstMode, enabled);
     }
 
     // ==================== UI 组件创建 ====================
@@ -453,7 +486,7 @@
             }
 
             #linuxdo-speed-slider .linuxdo-helper-label,
-            #linuxdo-speed-slider .linuxdo-helper-topic-first {
+            #linuxdo-speed-slider .linuxdo-helper-mode-toggle {
                 color: var(--linuxdo-helper-text);
             }
 
@@ -463,6 +496,22 @@
 
             #linuxdo-speed-slider input[type="range"] {
                 background: var(--linuxdo-helper-slider-bg);
+            }
+
+            #linuxdo-speed-slider .linuxdo-helper-speed-button {
+                width: 28px;
+                height: 28px;
+                border: 1px solid var(--linuxdo-helper-border);
+                border-radius: 6px;
+                background: transparent;
+                color: var(--linuxdo-helper-text);
+                font-size: 18px;
+                line-height: 1;
+                cursor: pointer;
+            }
+
+            #linuxdo-speed-slider .linuxdo-helper-speed-button:active {
+                transform: translateY(1px);
             }
 
             @media (prefers-color-scheme: dark) {
@@ -515,7 +564,13 @@
         container.appendChild(label);
 
         const sliderWrapper = document.createElement('div');
-        sliderWrapper.style.cssText = 'display: flex; align-items: center; gap: 12px;';
+        sliderWrapper.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+
+        const decreaseButton = document.createElement('button');
+        decreaseButton.type = 'button';
+        decreaseButton.className = 'linuxdo-helper-speed-button';
+        decreaseButton.textContent = '-';
+        decreaseButton.title = '降低速度';
 
         const slider = document.createElement('input');
         slider.type = 'range';
@@ -533,24 +588,44 @@
 
         const valueDisplay = document.createElement('span');
         valueDisplay.className = 'linuxdo-helper-value';
-        valueDisplay.textContent = getSpeedRatio().toFixed(1) + 'x';
-        valueDisplay.style.cssText = 'min-width: 45px; text-align: right; font-size: 14px; font-weight: 500;';
+        valueDisplay.textContent = formatSpeedDisplay(getSpeedRatio());
+        valueDisplay.style.cssText = 'min-width: 32px; text-align: right; font-size: 14px; font-weight: 500;';
 
-        slider.addEventListener('input', () => {
-            const ratio = parseFloat(slider.value);
+        const increaseButton = document.createElement('button');
+        increaseButton.type = 'button';
+        increaseButton.className = 'linuxdo-helper-speed-button';
+        increaseButton.textContent = '+';
+        increaseButton.title = '提高速度';
 
-            valueDisplay.textContent = ratio.toFixed(1) + 'x';
+        const updateSpeed = (ratio) => {
+            ratio = normalizeSpeedRatio(ratio);
+            slider.value = ratio;
+            valueDisplay.textContent = formatSpeedDisplay(ratio);
             saveSpeedRatio(ratio);
 
             restartScrolling();
+        };
+
+        slider.addEventListener('input', () => {
+            updateSpeed(parseFloat(slider.value));
         });
 
+        decreaseButton.addEventListener('click', () => {
+            updateSpeed(parseFloat(slider.value) - SPEED_SLIDER_CONFIG.step);
+        });
+
+        increaseButton.addEventListener('click', () => {
+            updateSpeed(parseFloat(slider.value) + SPEED_SLIDER_CONFIG.step);
+        });
+
+        sliderWrapper.appendChild(decreaseButton);
         sliderWrapper.appendChild(slider);
+        sliderWrapper.appendChild(increaseButton);
         sliderWrapper.appendChild(valueDisplay);
         container.appendChild(sliderWrapper);
 
         const topicFirstWrapper = document.createElement('label');
-        topicFirstWrapper.className = 'linuxdo-helper-topic-first';
+        topicFirstWrapper.className = 'linuxdo-helper-mode-toggle';
         topicFirstWrapper.style.cssText = `
             display: flex;
             align-items: center;
@@ -577,6 +652,35 @@
         topicFirstWrapper.appendChild(topicFirstCheckbox);
         topicFirstWrapper.appendChild(topicFirstText);
         container.appendChild(topicFirstWrapper);
+
+        const newTopicFirstWrapper = document.createElement('label');
+        newTopicFirstWrapper.className = 'linuxdo-helper-mode-toggle';
+        newTopicFirstWrapper.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+            font-size: 14px;
+            cursor: pointer;
+            user-select: none;
+        `;
+
+        const newTopicFirstCheckbox = document.createElement('input');
+        newTopicFirstCheckbox.type = 'checkbox';
+        newTopicFirstCheckbox.checked = getNewTopicFirstMode();
+        newTopicFirstCheckbox.style.cssText = 'cursor: pointer;';
+
+        const newTopicFirstText = document.createElement('span');
+        newTopicFirstText.textContent = '新话题优先';
+
+        newTopicFirstCheckbox.addEventListener('change', () => {
+            saveNewTopicFirstMode(newTopicFirstCheckbox.checked);
+            restartScrolling();
+        });
+
+        newTopicFirstWrapper.appendChild(newTopicFirstCheckbox);
+        newTopicFirstWrapper.appendChild(newTopicFirstText);
+        container.appendChild(newTopicFirstWrapper);
 
         document.body.appendChild(container);
 
@@ -640,17 +744,22 @@
 
     /**
      * 获取页面中的原始链接列表
-     * @returns {Array<Object>} 链接对象数组，包含index、href、text
+     * @returns {Array<Object>} 链接对象数组，包含index、href、text、isNewTopic
      */
     function getRawLinks() {
-        const linkElements = document.querySelectorAll(SELECTORS.rawLinks);
+        const linkElements = document.querySelectorAll(SELECTORS.topicLinks);
 
         return Array.from(linkElements)
-            .map((element, index) => ({
-                index: index + 1,
-                href: element.href,
-                text: element.textContent.trim()
-            }))
+            .map((element, index) => {
+                const topicRow = element.closest('tr.topic-list-item');
+
+                return {
+                    index: index + 1,
+                    href: element.href,
+                    text: element.textContent.trim(),
+                    isNewTopic: Boolean(topicRow?.querySelector(SELECTORS.newTopicBadge))
+                };
+            })
             .filter(link => link.href);
     }
 
@@ -697,6 +806,8 @@
         );
 
         if (unvisitedLinks.length === 0) {
+            setTabValue(STORAGE_KEYS.currentTopicNeedsMinimumReadTime, false);
+
             jumpWithRandomDelay(
                 URLS.newPosts,
                 RANDOM_DELAY_CONFIG.newPostsDelayMin,
@@ -706,17 +817,29 @@
             return;
         }
 
-        const randomIndex = Math.floor(Math.random() * unvisitedLinks.length);
-        const selectedLink = unvisitedLinks[randomIndex];
+        const isNewTopicFirstMode = getNewTopicFirstMode();
+        const preferredLinks = isNewTopicFirstMode
+            ? unvisitedLinks.filter(link => link.isNewTopic)
+            : [];
+        const candidateLinks = preferredLinks.length > 0 ? preferredLinks : unvisitedLinks;
+        const randomIndex = Math.floor(Math.random() * candidateLinks.length);
+        const selectedLink = candidateLinks[randomIndex];
+        const jumpMessage = isNewTopicFirstMode && selectedLink.isNewTopic
+            ? `准备进入新话题：${selectedLink.text || selectedLink.href}`
+            : `准备进入帖子：${selectedLink.text || selectedLink.href}`;
 
         visitedLinks.push(selectedLink.href);
         setTabValue(STORAGE_KEYS.visitedLinks, visitedLinks);
+        setTabValue(
+            STORAGE_KEYS.currentTopicNeedsMinimumReadTime,
+            isNewTopicFirstMode
+        );
 
         jumpWithRandomDelay(
             selectedLink.href,
             RANDOM_DELAY_CONFIG.pageJumpDelayMin,
             RANDOM_DELAY_CONFIG.pageJumpDelayMax,
-            `准备进入帖子：${selectedLink.text || selectedLink.href}`
+            jumpMessage
         );
     }
 
@@ -745,6 +868,14 @@
         let currentRequiredWaitingTime = null;
         let currentScrollCount = 0;
         let currentMaxScrollCount = null;
+        const topicStartTime = Date.now();
+        const minimumReadTime = getTabValue(STORAGE_KEYS.currentTopicNeedsMinimumReadTime, false)
+            ? TOPIC_FIRST_CONFIG.newTopicMinimumReadTime
+            : 0;
+
+        if (minimumReadTime > 0) {
+            console.log(`新话题优先模式已开启，本帖至少阅读 ${minimumReadTime}ms`);
+        }
 
         if (getTopicFirstMode()) {
             currentMaxScrollCount = randomInt(
@@ -766,8 +897,10 @@
             }
 
             const currentConfig = getConfig();
+            const readTime = Date.now() - topicStartTime;
+            const hasReachedMinimumReadTime = readTime >= minimumReadTime;
 
-            if (getTopicFirstMode() && currentScrollCount >= currentMaxScrollCount) {
+            if (getTopicFirstMode() && hasReachedMinimumReadTime && currentScrollCount >= currentMaxScrollCount) {
                 console.log(`话题优先模式达到滚动次数 ${currentScrollCount}/${currentMaxScrollCount}，准备换下一个帖子`);
                 stopScrolling();
                 loadPage(getRawLinks());
@@ -788,7 +921,7 @@
 
             const links = getRawLinks();
 
-            if (getTopicFirstMode() && currentScrollCount >= currentMaxScrollCount) {
+            if (getTopicFirstMode() && hasReachedMinimumReadTime && currentScrollCount >= currentMaxScrollCount) {
                 console.log(`话题优先模式达到滚动次数 ${currentScrollCount}/${currentMaxScrollCount}，准备换下一个帖子`);
                 stopScrolling();
                 loadPage(links);
@@ -810,7 +943,7 @@
 
                 const waitedTime = Date.now() - linkWaitStartTime;
 
-                if (waitedTime >= currentRequiredWaitingTime) {
+                if (waitedTime >= currentRequiredWaitingTime && hasReachedMinimumReadTime) {
                     stopScrolling();
                     loadPage(links);
                     return;
